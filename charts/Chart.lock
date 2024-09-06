@@ -1,0 +1,15 @@
+dependencies:
+- name: centralidp
+  repository: https://eclipse-tractusx.github.io/charts/dev
+  version: 3.0.0
+- name: tx-data-provider
+  repository: https://eclipse-tractusx.github.io/charts/dev
+  version: 0.1.0
+- name: tx-data-provider
+  repository: https://eclipse-tractusx.github.io/charts/dev
+  version: 0.1.0
+- name: bdrs-server-memory
+  repository: https://eclipse-tractusx.github.io/charts/dev
+  version: 0.0.4
+digest: sha256:540d35c9884a29824d1e0551879cc7edc445851d573c83dada6e7e61e008ed99
+generated: "2024-09-03T10:28:29.5472874+02:00"

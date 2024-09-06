@@ -1,0 +1,28 @@
+---
+apiVersion: v2
+name: example-edc-setup
+description: |
+  Example EDC setup to provide two EDCs for testing purposes.
+
+type: application
+version: 1.0.0
+
+dependencies:
+  - condition: centralidp.enabled
+    name: centralidp
+    repository: https://eclipse-tractusx.github.io/charts/dev
+    version: 3.0.0
+  - name: tx-data-provider
+    alias: data-consumer-1
+    repository: https://eclipse-tractusx.github.io/charts/dev
+    version: 0.1.0
+  - name: tx-data-provider
+    alias: data-provider
+    repository: https://eclipse-tractusx.github.io/charts/dev
+    version: 0.1.0
+  - name: bdrs-server-memory
+    repository: https://eclipse-tractusx.github.io/charts/dev
+    version: 0.0.4
+  - name: iatpmock
+    version: 0.1.0
+    repository: file://charts/iatpmock

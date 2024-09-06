@@ -1,0 +1,384 @@
+centralidp:
+  enabled: true
+  keycloak:
+    nameOverride: "centralidp"
+    replicaCount: 1
+    postgresql:
+      nameOverride: "centralidp-postgresql"
+      architecture: standalone
+      primary:
+        persistence:
+          enabled: false
+    proxy: edge
+    initContainers:
+      - name: realm-import
+        image: docker.io/tractusx/umbrella-init-container:1.0.0-init
+        imagePullPolicy: IfNotPresent
+        command:
+          - sh
+        args:
+          - -c
+          - |
+            echo "Copying realms..."
+            cp -R /import/catenax-central/realms/* /realms
+        volumeMounts:
+          - name: realms
+            mountPath: "/realms"
+      - name: theme-import
+        image: docker.io/tractusx/portal-iam:v3.0.0
+        imagePullPolicy: IfNotPresent
+        command:
+          - sh
+        args:
+          - -c
+          - |
+            echo "Copying themes..."
+            cp -R /import/themes/catenax-central/* /themes
+        volumeMounts:
+          - name: themes
+            mountPath: "/themes"
+      # uncomment the following line for tls
+      # - name: init-certs
+      #   image: docker.io/bitnami/keycloak:23.0.7-debian-12-r1
+      #   imagePullPolicy: IfNotPresent
+      #   command: ["/bin/bash"]
+      #   args:
+      #     - -ec
+      #     - |-
+      #       keytool -import -file "/certs/tls.crt" \
+      #               -keystore "/opt/bitnami/keycloak/certs/keycloak.truststore.jks" \
+      #               -storepass "${KEYCLOAK_SPI_TRUSTSTORE_PASSWORD}" \
+      #               -noprompt
+      #   env:
+      #     - name: KEYCLOAK_SPI_TRUSTSTORE_PASSWORD
+      #       value: "changeit"
+      #   volumeMounts:
+      #     - name: certificates
+      #       mountPath: /certs
+      #     - name: shared-certs
+      #       mountPath: "/opt/bitnami/keycloak/certs"
+    extraEnvVars:
+      - name: KEYCLOAK_EXTRA_ARGS
+        value: "-Dkeycloak.migration.action=import -Dkeycloak.migration.provider=singleFile -Dkeycloak.migration.file=/realms/CX-Central-realm.json -Dkeycloak.migration.strategy=IGNORE_EXISTING"
+      # uncomment the following line for tls
+      # - name: KEYCLOAK_SPI_TRUSTSTORE_FILE
+      #   value: "/opt/bitnami/keycloak/certs/keycloak.truststore.jks"
+      # - name: KEYCLOAK_SPI_TRUSTSTORE_PASSWORD
+      #   value: "changeit"
+    extraVolumes:
+      - name: realms
+        emptyDir: {}
+      - name: themes
+        emptyDir: {}
+      # uncomment the following line for tls
+      # - name: certificates
+      #   secret:
+      #     secretName: root-secret
+      #     defaultMode: 420
+      # - name: shared-certs
+      #   emptyDir: {}
+    extraVolumeMounts:
+      - name: realms
+        mountPath: "/realms"
+      - name: themes
+        mountPath: "/opt/bitnami/keycloak/themes/catenax-central"
+      # uncomment the following line for tls
+      # - name: certificates
+      #   mountPath: /certs
+      # - name: shared-certs
+      #   mountPath: "/opt/bitnami/keycloak/certs"
+    ingress:
+      enabled: true
+      ingressClassName: "nginx"
+      hostname: "centralidp.factory-x.catena-x.net"
+      annotations:
+        # uncomment the following line for tls
+        # cert-manager.io/cluster-issuer: "my-ca-issuer"
+        nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+        nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, OPTIONS"
+        nginx.ingress.kubernetes.io/cors-allow-origin: "http://centralidp.factory-x.catena-x.net"
+        nginx.ingress.kubernetes.io/enable-cors: "true"
+        nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+        nginx.ingress.kubernetes.io/proxy-buffering: "on"
+        nginx.ingress.kubernetes.io/proxy-buffers-number: "20"
+        nginx.ingress.kubernetes.io/use-regex: "true"
+      tls: false
+  secrets:
+    postgresql:
+      auth:
+        existingSecret:
+          postgrespassword: "dbpasswordcentralidp"
+          password: "dbpasswordcentralidp"
+          replicationPassword: "dbpasswordcentralidp"
+    auth:
+      existingSecret:
+        # -- Password for the admin username 'admin'. Secret-key 'admin-password'.
+        adminpassword: "adminconsolepwcentralidp"
+
+
+data-consumer-1:
+  enabled: true
+  seedTestdata: false
+  nameOverride: dataconsumer-1
+  secrets:
+    edc-miw-keycloak-secret: UbfW4CR1xH4OskkovqJ2JzcwnQIrG7oj
+  tractusx-connector:
+    nameOverride: dataconsumer-1-edc
+    participant:
+      id: BPNL00000003AZQP
+    iatp:
+      id: did:web:mock-util-service/BPNL00000003AZQP
+      trustedIssuers:
+        - did:web:mock-util-service/trusted-issuer
+      sts:
+        dim:
+          url: http://mock-util-service/sts
+        oauth:
+          token_url: http://centralidp.factory-x.catena-x.net/auth/realms/CX-Central/protocol/openid-connect/token
+          client:
+            id: satest01
+            secret_alias: edc-miw-keycloak-secret
+    controlplane:
+      env:
+        TX_IAM_IATP_CREDENTIALSERVICE_URL: http://mock-util-service
+        EDC_IAM_DID_WEB_USE_HTTPS: false
+      bdrs:
+        server:
+          url: http://bdrs-server:8082/api/directory
+      endpoints:
+        management:
+          authKey: TEST1
+      ingresses:
+        - enabled: true
+          hostname: "dataconsumer-1-controlplane.factory-x.catena-x.net"
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          endpoints:
+            - default
+            - protocol
+            - management
+          className: "nginx"
+          tls:
+            enabled: true
+            secretName: tls-secret-data-consumer-one-controlplane
+    dataplane:
+      env:
+        TX_IAM_IATP_CREDENTIALSERVICE_URL: http://mock-util-service
+        EDC_IAM_DID_WEB_USE_HTTPS: false
+      ingresses:
+        - enabled: true
+          hostname: "dataconsumer-1-dataplane.factory-x.catena-x.net"
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          endpoints:
+            - default
+            - public
+          className: "nginx"
+          tls:
+            enabled: true
+            secretName: tls-secret-data-consumer-one-dataplane
+      token:
+        signer:
+          privatekey_alias: tokenSignerPrivateKey
+        verifier:
+          publickey_alias: tokenSignerPublicKey
+    postgresql:
+      nameOverride: dataconsumer-1-db
+      jdbcUrl: "jdbc:postgresql://{{ .Release.Name }}-dataconsumer-1-db:5432/edc"
+      auth:
+        password: "dbpassworddataconsumerone"
+        postgresPassword: "dbpassworddataconsumerone"
+    vault:
+      hashicorp:
+        url: http://edc-dataconsumer-1-vault:8200
+      secretNames:
+        transferProxyTokenSignerPrivateKey: tokenSignerPrivateKey
+        transferProxyTokenSignerPublicKey: tokenSignerPublicKey
+        transferProxyTokenEncryptionAesKey: tokenEncryptionAesKey
+
+  vault:
+    nameOverride: edc-dataconsumer-1-vault
+    fullnameOverride: edc-dataconsumer-1-vault
+    enabled: true
+    server:
+      postStart: []
+
+  digital-twin-registry:
+    enabled: false
+
+  simple-data-backend:
+    enabled: false
+
+
+data-provider:
+  enabled: true
+  seedTestdata: false
+  backendUrl: http://{{ .Release.Name }}-dataprovider-submodelserver:8080
+  registryUrl: http://{{ .Release.Name }}-dataprovider-dtr:8080/api/v3
+  controlplanePublicUrl: http://{{ .Release.Name }}-dataprovider-edc-controlplane:8084
+  controlplaneManagementUrl: http://{{ .Release.Name }}-dataprovider-edc-controlplane:8081
+  dataplaneUrl: http://{{ .Release.Name }}-dataprovider-edc-dataplane:8081
+  nameOverride: dataprovider
+  secrets:
+    edc-miw-keycloak-secret: pyFUZP2L9UCSVJUScHcN3ZEgy2PGyEpg
+  tractusx-connector:
+    nameOverride: dataprovider-edc
+    participant:
+      id: BPNL00000003AYRE
+    iatp:
+      id: did:web:mock-util-service/BPNL00000003AYRE
+      trustedIssuers:
+        - did:web:mock-util-service/trusted-issuer
+      sts:
+        dim:
+          url: http://mock-util-service/sts
+        oauth:
+          token_url: http://centralidp.factory-x.catena-x.net/auth/realms/CX-Central/protocol/openid-connect/token
+          client:
+            id: satest02
+            secret_alias: edc-miw-keycloak-secret
+    controlplane:
+      env:
+        TX_IAM_IATP_CREDENTIALSERVICE_URL: http://mock-util-service
+        EDC_IAM_DID_WEB_USE_HTTPS: false
+      bdrs:
+        server:
+          url: http://bdrs-server:8082/api/directory
+      endpoints:
+        management:
+          authKey: TEST2
+      ingresses:
+        - enabled: true
+          hostname: "dataprovider-controlplane.factory-x.catena-x.net"
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          endpoints:
+            - default
+            - protocol
+            - management
+          className: "nginx"
+          tls:
+            enabled: true
+            secretName: tls-secret-data-provider-controlplane
+    dataplane:
+      env:
+        TX_IAM_IATP_CREDENTIALSERVICE_URL: http://mock-util-service
+        EDC_IAM_DID_WEB_USE_HTTPS: false
+      ingresses:
+        - enabled: true
+          hostname: "dataprovider-dataplane.factory-x.catena-x.net"
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            nginx.ingress.kubernetes.io/ssl-passthrough: "false"
+            nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          endpoints:
+            - default
+            - public
+          className: "nginx"
+          tls:
+            enabled: true
+            secretName: tls-secret-data-provider-dataplane
+      token:
+        signer:
+          privatekey_alias: tokenSignerPrivateKey
+        verifier:
+          publickey_alias: tokenSignerPublicKey
+    postgresql:
+      nameOverride: dataprovider-db
+      jdbcUrl: "jdbc:postgresql://{{ .Release.Name }}-dataprovider-db:5432/edc"
+      auth:
+        password: "dbpasswordtxdataprovider"
+        postgresPassword: "dbpasswordtxdataprovider"
+    vault:
+      hashicorp:
+        url: http://edc-dataprovider-vault:8200
+      secretNames:
+        transferProxyTokenSignerPrivateKey: tokenSignerPrivateKey
+        transferProxyTokenSignerPublicKey: tokenSignerPublicKey
+        transferProxyTokenEncryptionAesKey: tokenEncryptionAesKey
+
+  vault:
+    nameOverride: edc-dataprovider-vault
+    fullnameOverride: edc-dataprovider-vault
+    enabled: true
+    server:
+      postStart: []
+
+  digital-twin-registry:
+    enabled: false
+    nameOverride: dataprovider-dtr
+    postgresql:
+      nameOverride: dataprovider-dtr-db
+      auth:
+        password: "dbpassworddtrdataprovider"
+        existingSecret: dataprovider-secret-dtr-postgres-init
+    registry:
+      host: dataprovider-dtr.test
+
+  simple-data-backend:
+    enabled: false
+    nameOverride: dataprovider-submodelserver
+    ingress:
+      enabled: false
+
+bdrs-server-memory:
+  nameOverride: bdrs-server
+  fullnameOverride: bdrs-server
+  enabled: true
+  seeding:
+    url: "http://bdrs-server:8081"
+    enabled: true
+    bpnList:
+      - bpn: "BPNL00000003AZQP"
+        did: "did:web:mock-util-service/BPNL00000003AZQP"
+      - bpn: "BPNL00000003AYRE"
+        did: "did:web:mock-util-service/BPNL00000003AYRE"
+      - bpn: "BPNL00000003B6LU"
+        did: "did:web:mock-util-service/BPNL00000003B6LU"
+
+  server:
+    trustedIssuers:
+      - did:web:mock-util-service/trusted-issuer
+    env:
+      EDC_IAM_DID_WEB_USE_HTTPS: false
+
+    endpoints:
+      management:
+        authKey: TEST
+    ingresses:
+      - enabled: false
+        hostname: bdrs-server.factory-x.catena-x.net
+        endpoints:
+          - directory
+          - management
+        className: "nginx"
+        tls:
+          enabled: false
+
+iatpmock:
+  enabled: true
+  nameOverride: mock-util-service
+  fullnameOverride: mock-util-service
+  # -- see README ## Precondition for IATP Mock
+  image:
+    # override with locally built image if needed, default "tractusx/iatp-mock"
+    repository: "ghcr.io/ds-asmierzchalski/iatp-mock"
+    # override tag if needed, default "testing"
+    tag: "latest"
+  ingress:
+    enabled: false
+    hosts:
+      - host: iatpmock.tx.test
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
